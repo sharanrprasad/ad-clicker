@@ -2,6 +2,7 @@ version: '3.8'
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse  # Added container name for consistency
     ports:
       - "8123:8123"   # HTTP interface
       - "9000:9000"   # Native TCP client (clickhouse-client / drivers)
@@ -13,12 +14,19 @@ services:
       - CLICKHOUSE_USER=myuser
       - CLICKHOUSE_PASSWORD=mypassword
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    networks:
+      - kafka-clickhouse-network  # Added explicit network
+
   tabix:
     image: spoonest/clickhouse-tabix-web-client:latest
-    container_name: tabix
+    # because I'm running on M3 Mac (ARM architecture)
+    platform: linux/amd64
+    container_name: tabix  # Added container name
     ports:
-      - "8124:80"     # Tabix UI exposed on http://localhost:8124
+      - "8124:80" # Tabix UI port
     environment:
+      # FIXED: Use full URL format that Tabix expects
+      - CH_URL=http://clickhouse:8123
       - CH_NAME=default
       - CH_HOST=clickhouse
       - CH_PORT=8123
@@ -26,18 +34,41 @@ services:
       - CH_PASSWORD=mypassword
     depends_on:
       - clickhouse
-  zookeeper:
-    image: wurstmeister/zookeeper:3.4.6
-    ports:
-      - "2181:2181"
+    networks:
+      - kafka-clickhouse-network  # Added explicit network
+
   kafka:
-    image: wurstmeister/kafka:2.13-2.8.0
+    image: confluentinc/cp-kafka:latest
+    hostname: kafka
+    container_name: kafka
     ports:
       - "9092:9092"
+      - "9093:9093"
     environment:
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-    depends_on:
-      - zookeeper
+      KAFKA_KRAFT_MODE: "true"  # Enables KRaft mode.
+      KAFKA_PROCESS_ROLES: controller,broker  # Kafka acts as both controller and broker.
+      KAFKA_NODE_ID: 1  # Unique ID for the Kafka instance.
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"  # FIXED: Use service name
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093  # FIXED: Bind to all interfaces
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092  # External access
+      KAFKA_LOG_DIRS: /var/lib/kafka/data  # Log storage location.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"  # Enables automatic topic creation.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1  # Single replica for simplicity.
+      KAFKA_LOG_RETENTION_HOURS: 168  # Log retention period (7 days).
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0  # No rebalance delay.
+      CLUSTER_ID: "Mk3OEYBSD34fcwNTJENDM2Qk"  # Unique Kafka cluster ID.
+    volumes:
+      - ./data:/var/lib/kafka/data  # Maps logs to local storage.
+    networks:
+      - kafka-clickhouse-network  # Added explicit network
+
+# Added explicit network definition
+networks:
+  kafka-clickhouse-network:
+    driver: bridge
+
 volumes:
   clickhouse_data:
