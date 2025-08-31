@@ -1,0 +1,40 @@
+version: '3.42.0'
+
+vars:
+  DB_URI: clickhouse://myuser:mypassword@localhost:9000/default
+
+tasks:
+  up:
+    desc: Start ClickHouse in Docker
+    cmds:
+      - docker compose up -d
+
+  down:
+    desc: Stop ClickHouse
+    cmds:
+      - docker compose down -v
+
+  migrate-up:
+    desc: Run Goose migrations UP
+    cmds:
+      - goose -dir ./migrations clickhouse "{{.DB_URI}}" up
+
+  migrate-down:
+    desc: Run Goose migrations DOWN
+    cmds:
+      - goose -dir ./migrations clickhouse "{{.DB_URI}}" down
+
+  status:
+    desc: Show Goose migration status
+    cmds:
+      - goose -dir ./migrations clickhouse "{{.DB_URI}}" status
+
+  create:
+    desc: Create a new migration. Example - task create NAME=AddEventsTable
+    vars:
+      NAME: ""
+    cmds:
+      - goose -dir ./migrations create {{.NAME}} sql
+    preconditions:
+      - sh: test -n "{{.NAME}}"
+        msg: "❌ You must provide a NAME, e.g. task create NAME=add_events_table"
